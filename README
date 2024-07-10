@@ -1,7 +1,7 @@
-A virtual project focusing on chips customer in different groups.
+A FORAGE project focusing on chips customers in different groups.
 
 Both two studies followed the steps "Ask" -> "Prepare" -> "Process" -> "Analyse" -> "Visualize" -> "Share" 
 
 for Study2, a t-test is applied to check if the difference exist in two different groups metrics.
 
-The first project manually checks for product price inconsistencies, while the second project uses data.table for efficient handling of large datasets and includes more advanced data manipulation techniques. 
+The first project manually checks for product price inconsistencies, while the second project uses data.table for efficient handling of large datasets and includes more data manipulation techniques. 
