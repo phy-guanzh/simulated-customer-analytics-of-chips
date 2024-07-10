@@ -1,0 +1,217 @@
+---
+title: "test_example"
+author: "Zhe GUAN"
+date: "2024-07-07"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+## R Markdown
+
+```{r}
+options(repos = "https://cran.rstudio.com/")
+install.packages("data.table")
+install.packages("ggmosaic")
+library(ggmosaic)
+library(data.table)
+install.packages("tidyverse")
+install.packages("dplyr")
+library(tidyverse)
+library(dplyr)
+library(lubridate)
+```
+
+
+
+
+```{r}
+filepath <- "/Users/zheguan/CWR_fig/QVI_case/"
+transaction_data <- fread(paste(filepath,"QVI_transaction_data.csv",sep = ""))
+customer_data <- fread(paste0(filepath,"QVI_purchase_behaviour.csv"))
+str(customer_data)
+```
+
+```{r}
+transaction_data$DATE <- as.Date(transaction_data$DATE,origin = "1899/12/30")
+transaction_data[,.N,PROD_NAME]
+```
+
+
+```{r}
+transaction_data$DATE <- as.Date(transaction_data$DATE, origin = "1899-12-30")
+transaction_data[,.N,by="PROD_NAME"]
+str(transaction_data)
+```
+
+```{r}
+test <- transaction_data[,PROD_NAME] %>% unique() %>% strsplit(.," ") %>% unlist() %>% data.table()  #使用管道挑选出关键词
+setnames(test,"words")
+
+test<-test[grepl("[[:digit:]]",words) == FALSE,]  #使用data.table 挑选出不含数字的行。
+test<-test[grepl("[[:alpha:]]",words),]
+test[,.N,words][order(N,decreasing = TRUE)]
+transaction_data<-transaction_data[,SALSA := grepl("salsa",tolower(PROD_NAME))]
+transaction_data<-transaction_data[SALSA==FALSE,][, SALSA := NULL]
+summary(transaction_data)
+tibble(transaction_data)
+transaction_data[PROD_QTY == 200,]
+transaction_data[LYLTY_CARD_NBR == 226000,]
+transaction_data <- transaction_data[LYLTY_CARD_NBR != 226000,]
+summary(transaction_data)
+transaction_data[,.N,DATE]
+allDate <- data.table(seq(as.Date("2018/07/01"),as.Date("2019/06/30"),by= "day"))
+setnames(allDate,"DATE")
+test3 <- merge(transaction_data[,.N,DATE],allDate,by = "DATE", all.x = TRUE )
+#test3 <- allDate %>% left_join(transaction_data[,.N,DATE])
+tibble(test3)
+theme_update(plot.title = element_text(hjust = 0.5))
+
+#ggplot(test3,aes(x=DATE,y = N)) + 
+#ggplot(test3,aes(x = DATE,y = N)) + geom_line() +
+ggplot(test3, aes(x = DATE, y = N)) +
+geom_line() +
+labs(x = "Day", y = "Number of transactions", title = "Transactions over time") +
+scale_x_date(breaks = "1 month") +
+theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+```
+```{r}
+ggplot(test3[month(DATE)==12,],aes(x=DATE,y=N))+geom_line()+labs(x="DATE",y="number of transaction",title="Transaction over time in December.")+scale_x_date(breaks = "1 day")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+```
+
+summarize the package size from transaction_data:
+```{r}
+package_size <- transaction_data[,package_size := parse_number(PROD_NAME)]
+package_size <- transaction_data[,.N,package_size]
+package_size[,][order(-package_size)]
+```
+
+the most popular product's package size is 175g while the largest package size on market is 380g.
+
+```{r}
+ggplot(transaction_data,aes(x=parse_number(PROD_NAME))) + geom_histogram(fill="blue",color = "blue") + labs(x= "package size", y = "the counts of products on sale") 
+?geom_histogram
+```
+
+
+
+
+select key words from transaction_data
+
+```{r}
+productWords <- data.table(unlist(strsplit(unique(transaction_data[,
+PROD_NAME]), " ")))
+setnames(productWords,"words" )
+tibble(productWords)
+print(productWords)
+productWords <- productWords[grepl("\\d", words) == FALSE, ]
+productWords <- productWords[grepl("[:alpha:]", words), ]
+productWords[,.N,words][order(N,decreasing = TRUE)]
+```
+
+```{r}
+colnames(transaction_data)
+
+```
+
+A example of mosaic plot can be used to easily identify the propotions of sales in different groups.
+
+```{r}
+total_data <- merge(transaction_data, customer_data, all.x= TRUE)
+colnames(total_data)
+test <- total_data[,.(total = sum(TOT_SALES)),.(LIFESTAGE, PREMIUM_CUSTOMER)]
+tibble(test)
+p <- ggplot(data = test) + 
+geom_mosaic(aes(weight = total, x = product(PREMIUM_CUSTOMER, LIFESTAGE),fill = PREMIUM_CUSTOMER)) +
+labs(x = "Lifestage", y = "Premium customer flag", title = "Proportion of sales") +
+theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+p +geom_text(data = ggplot_build(p)$data[[1]],aes(x= (xmin+xmax)/2, y = ymin/2+ymax/2, label = as.character(paste(round(.wt/sum(.wt),3)*100,"%"))))
+
+```
+
+```{r}
+average_data <- total_data[,.(average=sum(PROD_QTY)/uniqueN(LYLTY_CARD_NBR)),.(PREMIUM_CUSTOMER,LIFESTAGE)][order(-average)]
+tibble(average_data)
+
+p2<- ggplot(data = average_data) +
+  geom_mosaic(aes(weight = average, x = product(PREMIUM_CUSTOMER, LIFESTAGE),fill = PREMIUM_CUSTOMER))+labs(x="lifestage",y="premium customer",title= "propotions of product numbers") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+#print(ggplot_build(p2)$data[[1]])
+
+p2 + geom_text(data = ggplot_build(p2)$data[[1]],aes(x = xmin/2 + xmax/2, y = ymin/2 + ymax/2, label = as.character(paste0(round(.wt/sum(.wt),3)*100,"%")) ))
+  
+
+```
+we can find that the older and young family tend to buy more chips and there is no big difference in the propotion of premium ranks.
+
+Another bar plot is also availale:
+
+```{r}
+p3 <- ggplot( data = average_data ) + geom_bar(position = position_dodge(), aes(weight = average, x= LIFESTAGE, fill = PREMIUM_CUSTOMER)) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) + labs(x = "lifestage", y = "average number of product purchased")
+print(ggplot_build(p3)$data[[1]])
+p3 + geom_text(data = ggplot_build(p3)$data[[1]], aes(x = x, y = y + 0.1*y, label= as.character(paste(round(weight/sum(weight),3)*100,"%") )),size = 2)
+```
+
+Similary, we can calculate average price per unit by LIFESTAGE and PREMIUM_CUSTOMER
+```{r}
+#prepare the data with the data.table
+
+avg_price <- total_data[,.(avg_pri = sum(TOT_SALES)/uniqueN(LYLTY_CARD_NBR)),.(PREMIUM_CUSTOMER,LIFESTAGE) ]
+tibble(avg_price)
+```
+```{r}
+p4 <- ggplot(data = avg_price) + geom_mosaic(aes(weight = avg_pri, x = product(LIFESTAGE,PREMIUM_CUSTOMER),fill = LIFESTAGE)) +theme(axis.title.x = element_text(hjust = 0.5 ,vjust = 0.01))
+p4 + geom_text(data = ggplot_build(p4)$data[[1]], aes(x=xmin/2+xmax/2, y = ymin/2+ymax/2, label = as.character(paste0(round(.wt/sum(.wt),3)*100,"%"))),size = 3)
+
+```
+
+```{r}
+avg_price1 <- total_data[,.(avg_pri1 = sum(TOT_SALES)/sum(PROD_QTY)),.(PREMIUM_CUSTOMER,LIFESTAGE) ]
+tibble(avg_price1)
+```
+
+```{r}
+p5 <- ggplot( data = avg_price1) + geom_bar(position = position_dodge() ,aes(x = LIFESTAGE,weight = avg_pri1, fill=PREMIUM_CUSTOMER)) +theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) + labs(x = "lifestage", y = "average price per product", title = "Average price in different customer groups") 
+
+p5 + geom_text(data = ggplot_build(p5)$data[[1]], aes(x=x,y=1.05*y,label = round(weight,2)),size = 2)
+```
+
+t-test for different products, we mainly focus on the average price per product
+
+```{r}
+total_data[,price:=TOT_SALES/PROD_QTY]
+t.test(total_data[LIFESTAGE %in% c("YOUNG SINGLES/COUPLES","MIDAGE SINGLES/COUPLES") & PREMIUM_CUSTOMER == "Mainstream",price],total_data[LIFESTAGE %in% c("YOUNG SINGLES/COUPLES","MIDAGE SINGLES/COUPLES") & PREMIUM_CUSTOMER != "Mainstream",price],alternative = "greater")
+```
+we will focus on an important group which we can develop, young singles and couples to look at their differences compared to other groups.
+
+```{r}
+young_segment <- total_data[LIFESTAGE == "YOUNG SINGLES/COUPLES" & PREMIUM_CUSTOMER == "Mainstream",]
+other_segment <- total_data[LIFESTAGE != "YOUNG SINGLES/COUPLES" | PREMIUM_CUSTOMER != "Mainstream",]
+
+#define a metric which means that a specific brand propotion of chips in a group.
+
+total_young_pro <- young_segment[,sum(PROD_QTY)]
+tibble(total_young_pro)
+seg_test <- young_segment[,.(targetpropo = sum(PROD_QTY)/total_young_pro),PROD_NAME][order(-targetpropo)]
+tibble(seg_test)
+
+total_other_pro <- other_segment[,sum(PROD_QTY)]
+seg_test2 <- other_segment[,.(targetpropo1 = sum(PROD_QTY)/total_other_pro),PROD_NAME][order(-targetpropo1)]
+tibble(seg_test2)
+
+com_young_other_brand <- merge(seg_test,seg_test2)[,ratio := targetpropo/targetpropo1][order(-ratio)]
+
+tibble(com_young_other_brand)
+```
+
+
+
+install.packages("tidyverse")
+
