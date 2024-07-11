@@ -1,0 +1,403 @@
+---
+title: "Study3"
+author: "Zhe GUAN"
+date: "2024-07-11"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Prepare, Process
+```{r}
+options(repos = "https://cran.rstudio.com/")
+install.packages("data.table")
+install.packages("tidyverse")
+install.packages("dplyr")
+install.packages("ggmosaic")
+library(data.table)
+library(tidyverse)
+library(dplyr)
+library(ggmosaic)
+```
+
+read data from link:
+
+```{r}
+filepath <- "/Users/zheguan/CWR_fig/QVI_case/"
+transaction_data1 <- fread(paste(filepath,"QVI_transaction_data.csv",sep = ""))
+customer_data1 <- fread(paste0(filepath,"QVI_purchase_behaviour.csv"))
+str(customer_data1)
+```
+
+Primary key is LYLTY_CARD_NBR, then we can check transaction data:
+```{r}
+transaction_data1[!is.na(LYLTY_CARD_NBR),]
+```
+
+Select the shops from stores 77,86,88 in which we are intrested:
+
+```{r}
+selected_shops_transaction <- transaction_data1[STORE_NBR %in% c(77,86,88), ]
+tibble(selected_shops_transaction)
+```
+
+left-link transaction data with the customer details:
+
+```{r}
+merged_data_selectedshops <- merge(selected_shops_transaction,customer_data1,by = "LYLTY_CARD_NBR",all.x = TRUE) 
+tibble(merged_data_selectedshops)
+```
+
+the stakeholder asks us to focus on these measures:
+
+consider the monthly sales experience of each store. 
+
+This can be broken down by:
+
+1.total sales revenue
+2.total number of customers
+3.average number of transactions per customer
+
+by checking, the date should be transformed with proper kind.
+
+```{r}
+
+merged_data_selectedshops[,DATE := as.Date(DATE,origin = "1899/12/30")]
+tibble(merged_data_selectedshops)
+
+```
+
+1. check the total sales revenue per month among these stores:
+
+```{r}
+summary_table_1 <- merged_data_selectedshops[,.(month_income = sum(TOT_SALES)),.(month(DATE),STORE_NBR)][,STORE_NBR := as.factor(STORE_NBR)][,month := as.factor(month)]
+tibble(summary_table_1)
+```
+
+plot the contributions
+
+
+
+```{r}
+
+ggplot(data = summary_table_1)+ geom_bar(position = position_dodge(), aes(x=month,fill= STORE_NBR,weight = month_income)) + labs(x="Months", y = "Total sales", title = "Store sales per month")+theme(axis.text.x = element_text(vjust = 0.5),axis.title.x = element_text(vjust = 0.5))
+```
+
+
+2. We count the total number of customers in separate stores, and only account the customers with unique loyality number.
+
+```{r}
+summary_table_2 <- merged_data_selectedshops[,.(num_of_customer=uniqueN(LYLTY_CARD_NBR)),.(month(DATE),STORE_NBR)]
+tibble(summary_table_2)
+summary_table_2[,STORE_NBR := as.factor(paste0("Store ",STORE_NBR))][,month := as.factor(month)]
+```
+
+plot1: bar plot
+
+```{r}
+ggplot(data = summary_table_2) +geom_bar(position = position_dodge(), aes(x= month,weight = num_of_customer, fill = STORE_NBR))
+```
+
+
+plot2 mosaic:
+
+```{r}
+p <- ggplot( data = summary_table_2) +geom_mosaic(aes(weight = num_of_customer, x = product(month,STORE_NBR),fill = STORE_NBR))
+tibble(ggplot_build(p)$data[[1]])
+p + geom_text(data = ggplot_build(p)$data[[1]],aes(x=xmin/2+xmax/2,y=ymin/2+ymax/2,label = paste0(round(.wt/sum(.wt),4)*100,"%")))
+```
+
+plot3:
+
+
+```{r}
+install.packages("viridis")
+library(viridis)
+ggplot(data = summary_table_2) +
+  geom_line(aes(x = month, y = num_of_customer, color = factor(STORE_NBR), group = STORE_NBR), size = 1) +
+  scale_color_viridis(discrete = TRUE) + # 
+  labs(x = "Month", y = "Number of Customers", title = "Monthly Customer Numbers by Store", color = "Store Number") +
+  theme_minimal() + # 
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"), # 
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    legend.title = element_text(size = 12),
+    legend.text = element_text(size = 10),
+    panel.grid.major = element_line(color = "gray", size = 0.5), 
+    panel.grid.minor = element_line(color = "lightgray", size = 0.25) 
+  )
+```
+
+3. calculate the average number of transactions of customer:
+
+```{r}
+summary_table_3 <- merged_data_selectedshops[,.(total_num = sum(PROD_QTY)),.(month(DATE),STORE_NBR)]
+tibble(summary_table_3)
+summary_table_3[,STORE_NBR := as.factor(paste0("Store ",STORE_NBR))][,month := as.factor(month)]
+```
+
+merged table:
+
+```{r}
+summary_table_3_link_2 <- merge(summary_table_3,summary_table_2,by = c("STORE_NBR","month"),all.x = TRUE)
+tibble(summary_table_3_link_2)
+summary_table_3_link_2[,avg_num := total_num/num_of_customer]
+```
+
+plot:
+
+```{r}
+ggplot(data = summary_table_3_link_2) +geom_line(aes(x= month, y = avg_num, group = STORE_NBR, colour = factor(STORE_NBR))) +theme_minimal() + labs(x="month",y="average number of transaction per customer",colour = "STORE_NBR")
+
+```
+
+bar plot:
+
+```{r}
+ggplot(data = summary_table_3_link_2) + geom_bar(position = position_dodge(), aes(x=month,weight = avg_num,fill = STORE_NBR))
+```
+
+
+Next important step is to choose the Control Stores, here we define a function to calculate the correlations between trial stores and other stores.
+
+firstly, we need to similary calculate a summary table:
+```{r}
+transaction_data1[,DATE := as.Date(DATE,origin = "1899/12/30")]
+measureOverTime <- transaction_data1[,.(totalSales = sum(TOT_SALES),nCustomers= uniqueN(LYLTY_CARD_NBR),nChipsPerTxn = sum(PROD_QTY),avgPricePerUnit = sum(TOT_SALES)/sum(PROD_QTY)), .(month=month(DATE),STORE_NBR)][order(month)]
+tibble(measureOverTime)
+```
+
+## Analyze
+define a function which can calculate the correlation between two stores by using the information in separate 12 months.
+
+```{r}
+
+testN <- measureOverTime[,N := .N ,.(STORE_NBR)][order(N)]
+
+filtered_stores <- measureOverTime[N==12,]
+filtered_stores
+tibble(testN)
+
+comparison_vector1 <- measureOverTime[STORE_NBR == 1]$totalSales
+comparison_vector2 <- measureOverTime[STORE_NBR == 77]$totalSales
+unique(measureOverTime$STORE_NBR)
+cor(comparison_vector1, comparison_vector2, method = "kendall")
+
+tibble(filtered_stores)
+
+calculate_cor1 <- function(store1,metrics,method){
+  #calculate the total number of stores
+  unique_num <- unique(filtered_stores$STORE_NBR)
+  result <- numeric(length = length(unique_num))
+  
+  for (i in seq_along(unique_num)){
+    trail_vector <- filtered_stores[STORE_NBR == store1,..metrics]
+    comparison_vector <- filtered_stores[STORE_NBR == unique_num[i],..metrics]
+    result[i] <- cor(trail_vector,comparison_vector,method = method)
+  }
+  result_table <- data.table(STORE_NBR = unique_num,Correlation = result)
+  return(result_table)
+}
+
+calculate_cor <- function(store1, metrics, method) {
+  if (!exists("filtered_stores") || !all(c("STORE_NBR", metrics) %in% colnames(filtered_stores))) {
+    stop("filtered_stores don't exist")
+  }
+  
+  unique_num <- unique(filtered_stores$STORE_NBR)
+  result <- numeric(length = length(unique_num))
+  
+  for (i in seq_along(unique_num)) {
+    trail_vector <- filtered_stores[STORE_NBR == store1, ..metrics, with = FALSE]
+    comparison_vector <- filtered_stores[STORE_NBR == unique_num[i], ..metrics, with = FALSE]
+    
+    if (all(sapply(trail_vector, function(x) all(is.na(x)))) || all(sapply(comparison_vector, function(x) all(is.na(x))))) {
+      result[i] <- NA
+    } else {
+      result[i] <- cor(trail_vector, comparison_vector, method = method, use = "complete.obs")
+    }
+  }
+  
+  result_table <- data.table(STORE_NBR = unique_num, Correlation = result)
+  return(result_table)
+}
+
+metrics <- c("totalSales","nCustomers","nChipsPerTxn","avgPricePerUnit")
+result_cor_77_pearson <- sapply(metrics,function(m) calculate_cor1(77,m,"pearson"), simplify = FALSE)
+result_cor_77_pearson <- rbindlist(result_cor_77_pearson, idcol = "Metric")
+result_cor_86_pearson <- sapply(metrics,function(m) calculate_cor1(86,m,"pearson"), simplify = FALSE)
+result_cor_86_pearson <- rbindlist(result_cor_86_pearson, idcol = "Metric")
+result_cor_88_pearson <- sapply(metrics,function(m) calculate_cor1(88,m,"pearson"), simplify = FALSE)
+result_cor_88_pearson <- rbindlist(result_cor_88_pearson, idcol = "Metric")
+tibble(result_cor_77_pearson[order(-Correlation)])
+```
+
+```{r}
+ggplot(data = result_cor_77_pearson, aes(x = as.factor(STORE_NBR), y = Metric, fill = Correlation)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0,
+                       limit = c(-1, 1), space = "Lab", name="Correlation") +
+  theme_minimal() +
+  labs(title = "Heatmap of Correlation Between Stores and Metrics",
+       x = "Store Number",
+       y = "Metric") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+
+```{r}
+ggplot(data = result_cor_86_pearson, aes(x = as.factor(STORE_NBR), y = Metric, fill = Correlation)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0,
+                       limit = c(-1, 1), space = "Lab", name="Correlation") +
+  theme_minimal() +
+  labs(title = "Heatmap of Correlation Between Stores and Metrics",
+       x = "Store Number",
+       y = "Metric") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+ggplot(data = result_cor_88_pearson, aes(x = as.factor(STORE_NBR), y = Metric, fill = Correlation)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0,
+                       limit = c(-1, 1), space = "Lab", name="Correlation") +
+  theme_minimal() +
+  labs(title = "Heatmap of Correlation Between Stores and Metrics",
+       x = "Store Number",
+       y = "Metric") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+#we can define a distance which means the difference of metrics between trial and other stores.
+tibble(result_cor_77_pearson)
+sum_cor_central <- result_cor_77_pearson[STORE_NBR == 77,]
+tibble(sum_cor_central)
+distance_avg <- result_cor_77_pearson[,.(distance = sum((Correlation - sum_cor_central$Correlation)^2)),.(STORE_NBR)]
+tibble(distance_avg[order(distance)])
+```
+
+
+
+```{r}
+#we can define a distance which means the difference of metrics between trial and other stores.
+tibble(result_cor_86_pearson)
+sum_cor_central <- result_cor_86_pearson[STORE_NBR == 86,]
+tibble(sum_cor_central)
+distance_avg <- result_cor_86_pearson[,.(distance = sum((Correlation - sum_cor_central$Correlation)^2)),.(STORE_NBR)]
+tibble(distance_avg[order(distance)])
+```
+
+```{r}
+#we can define a distance which means the difference of metrics between trial and other stores.
+tibble(result_cor_88_pearson)
+sum_cor_central <- result_cor_88_pearson[STORE_NBR == 88,]
+tibble(sum_cor_central)
+distance_avg <- result_cor_88_pearson[,.(distance = sum((Correlation - sum_cor_central$Correlation)^2)),.(STORE_NBR)]
+tibble(distance_avg[order(distance)])
+```
+
+We can get the store 167 has the minmum distance to store 77. Then we can compare their metrics: 
+
+```{r}
+
+ggplot(data = measureOverTime[STORE_NBR %in% c(77,167),]) +geom_line(aes(x= as.factor(month), y = totalSales, group = STORE_NBR, colour = as.factor(STORE_NBR))) +theme_minimal() + labs(x="month",y="average number of transaction per customer",colour = "STORE_NBR")
+```
+we can find the store 77's total sales are more than store 167, then we can compare more metrics:
+
+```{r}
+tibble(measureOverTime[STORE_NBR %in% c(77,167),])
+measureOverTime[STORE_NBR %in% c(77,167),][order(month)]
+tibble(measureOverTime)
+
+ggplot(data = measureOverTime[STORE_NBR %in% c(77,167),]) +geom_line(aes(x= as.factor(month), y = avgPricePerUnit, group = STORE_NBR, colour = as.factor(STORE_NBR))) +theme_minimal() + labs(x="month",y="average number of transaction per customer",colour = "STORE_NBR")
+```
+
+the average sales are similar
+
+```{r}
+tibble(measureOverTime[STORE_NBR %in% c(77,167),])
+measureOverTime[STORE_NBR %in% c(77,167),][order(month)]
+tibble(measureOverTime)
+
+ggplot(data = measureOverTime[STORE_NBR %in% c(77,167),]) +geom_line(aes(x= as.factor(month), y = nCustomers, group = STORE_NBR, colour = as.factor(STORE_NBR))) +theme_minimal() + labs(x="month",y="nCustomers",colour = "STORE_NBR")
+```
+
+```{r}
+tibble(measureOverTime[STORE_NBR %in% c(77,167),])
+measureOverTime[STORE_NBR %in% c(77,167),][order(month)]
+tibble(measureOverTime)
+
+ggplot(data = measureOverTime[STORE_NBR %in% c(77,167),]) +geom_line(aes(x= as.factor(month), y = nChipsPerTxn, group = STORE_NBR, colour = as.factor(STORE_NBR))) +theme_minimal() + labs(x="month",y="nChipsPerTxn",colour = "STORE_NBR")
+```
+
+we found the answer is that the customer from store 77 tend to buy more chips every times which result in the total sales much larger than store 167 (although the total number of customer is similar).
+
+
+By correlations, we can also get that store 132 is similar with store 88 comprehensively. but we can compare the difference:
+
+
+```{r}
+tibble(measureOverTime[STORE_NBR %in% c(86,132),])
+measureOverTime[STORE_NBR %in% c(86,132),][order(month)]
+tibble(measureOverTime)
+
+ggplot(data = measureOverTime[STORE_NBR %in% c(86,132),]) +geom_line(aes(x= as.factor(month), y = totalSales, group = STORE_NBR, colour = as.factor(STORE_NBR))) +theme_minimal() + labs(x="month",y="totalSales",colour = "STORE_NBR")
+```
+
+```{r}
+ggplot(data = measureOverTime[STORE_NBR %in% c(86,132),]) +geom_line(aes(x= as.factor(month), y = avgPricePerUnit, group = STORE_NBR, colour = as.factor(STORE_NBR))) +theme_minimal() + labs(x="month",y="average number of transaction per customer",colour = "STORE_NBR")
+```
+
+```{r}
+ggplot(data = measureOverTime[STORE_NBR %in% c(86,132),]) +geom_line(aes(x= as.factor(month), y = nCustomers, group = STORE_NBR, colour = as.factor(STORE_NBR))) +theme_minimal() + labs(x="month",y="nCustomers",colour = "STORE_NBR")
+```
+
+
+```{r}
+ggplot(data = measureOverTime[STORE_NBR %in% c(86,132),]) +geom_line(aes(x= as.factor(month), y = nChipsPerTxn, group = STORE_NBR, colour = as.factor(STORE_NBR))) +theme_minimal() + labs(x="month",y="nChipsPerTxn",colour = "STORE_NBR")
+```
+
+the differences between two stores are from the total number of customer and the number of chips purchased every time.
+
+Finally for store 88 and 229
+```{r}
+ggplot(data = measureOverTime[STORE_NBR %in% c(88,229),]) +geom_line(aes(x= as.factor(month), y = totalSales, group = STORE_NBR, colour = as.factor(STORE_NBR))) +theme_minimal() + labs(x="month",y="totalSales",colour = "STORE_NBR")
+```
+
+```{r}
+ggplot(data = measureOverTime[STORE_NBR %in% c(88,229),]) +geom_line(aes(x= as.factor(month), y = avgPricePerUnit, group = STORE_NBR, colour = as.factor(STORE_NBR))) +theme_minimal() + labs(x="month",y="average number of transaction per customer",colour = "STORE_NBR")
+```
+
+```{r}
+ggplot(data = measureOverTime[STORE_NBR %in% c(88,229),]) +geom_line(aes(x= as.factor(month), y = nCustomers, group = STORE_NBR, colour = as.factor(STORE_NBR))) +theme_minimal() + labs(x="month",y="nCustomers",colour = "STORE_NBR")
+```
+
+```{r}
+ggplot(data = measureOverTime[STORE_NBR %in% c(88,229),]) +geom_line(aes(x= as.factor(month), y = nChipsPerTxn, group = STORE_NBR, colour = as.factor(STORE_NBR))) +theme_minimal() + labs(x="month",y="nChipsPerTxn",colour = "STORE_NBR")
+```
+
+the store metrics are much better than store 229.
+
+
+## Conclusion
+
+* three stores have their own pros and cons compared to the corrlated stores in the whole year.
+
+* the most effective one is store 86, it shows this store has the highest improvement compared to similar stores.
+
+* the store 77 performance is little better than store 167 and it is from the improvement of number of chips per transaction.
+
+* the store 88 have a comprehensive improvement compared with store 229 in all metrics.
+
+
+
+
